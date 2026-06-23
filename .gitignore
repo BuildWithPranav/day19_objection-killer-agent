@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+.env
+
+# App data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Packages
+*.zip

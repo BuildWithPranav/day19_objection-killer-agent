@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Objection Killer Dashboard</title>
+  <style>
+    :root { color-scheme: dark; --bg:#06070a; --panel:#111827; --hot:#ff3b30; --ok:#39d98a; --text:#f8fafc; --muted:#94a3b8; --line:#243044; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:radial-gradient(circle at top left,#18213a,#06070a 48%); color:var(--text); }
+    header { display:flex; align-items:center; justify-content:space-between; padding:20px 28px; border-bottom:1px solid var(--line); background:rgba(6,7,10,.82); position:sticky; top:0; backdrop-filter:blur(12px); }
+    h1 { margin:0; font-size:20px; letter-spacing:.02em; }
+    .status { display:flex; gap:10px; align-items:center; color:var(--muted); font-size:14px; }
+    .dot { width:10px; height:10px; border-radius:50%; background:#64748b; box-shadow:0 0 18px #64748b; }
+    .dot.live { background:var(--ok); box-shadow:0 0 18px var(--ok); }
+    main { display:grid; grid-template-columns:1fr 360px; gap:18px; padding:22px; }
+    #cards { display:flex; flex-direction:column; gap:18px; }
+    .empty { border:1px dashed var(--line); border-radius:22px; padding:46px; text-align:center; color:var(--muted); background:rgba(17,24,39,.5); }
+    .card { border:1px solid rgba(255,59,48,.45); background:linear-gradient(145deg,rgba(127,29,29,.84),rgba(17,24,39,.95)); box-shadow:0 22px 70px rgba(255,59,48,.2); border-radius:24px; padding:22px; animation:flash .35s ease-out; }
+    @keyframes flash { from { transform:scale(1.025); filter:brightness(1.5); } to { transform:scale(1); filter:brightness(1); } }
+    .badge { display:inline-flex; gap:7px; align-items:center; padding:7px 10px; border-radius:999px; background:rgba(255,255,255,.1); color:#fecaca; text-transform:uppercase; font-weight:800; font-size:12px; letter-spacing:.08em; }
+    .headline { font-size:30px; line-height:1.08; font-weight:900; margin:14px 0 12px; }
+    .rebuttal { font-size:19px; line-height:1.38; background:rgba(0,0,0,.22); padding:16px; border-radius:16px; border:1px solid rgba(255,255,255,.08); }
+    .talk { font-size:18px; line-height:1.4; color:#dbeafe; margin-top:16px; }
+    .proof { margin-top:16px; }
+    .proof li { margin:8px 0; color:#fef3c7; }
+    .meta { margin-top:14px; color:var(--muted); font-size:13px; display:flex; gap:12px; flex-wrap:wrap; }
+    aside { border:1px solid var(--line); background:rgba(17,24,39,.72); border-radius:22px; padding:18px; height:max-content; position:sticky; top:86px; }
+    code { background:#020617; padding:3px 6px; border-radius:6px; color:#93c5fd; }
+    button { border:0; border-radius:14px; padding:12px 14px; background:#2563eb; color:white; font-weight:800; cursor:pointer; }
+    button.secondary { background:#334155; }
+    .small { color:var(--muted); font-size:13px; line-height:1.45; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>AI Live Sales Objection Killer</h1>
+  <div class="status"><span id="dot" class="dot"></span><span id="status">connecting</span></div>
+</header>
+<main>
+  <section id="cards"><div class="empty">Waiting silently. Cue cards flash here the moment a high-value objection appears.</div></section>
+  <aside>
+    <h2>Rep: {{ rep_id }}</h2>
+    <p class="small">Keep this on your secondary monitor. This page is private; the customer never sees it.</p>
+    <p class="small">Latency target: <code>&lt;1500ms after transcript event</code>. The detector path is regex + local FTS, not LLM-blocked.</p>
+    <button id="sound">Enable alert sound</button>
+    <button class="secondary" id="clear">Clear cards</button>
+  </aside>
+</main>
+<script>
+  const repId = {{ rep_id|tojson }};
+  const token = {{ token|tojson }};
+  const wsUrl = `${{{ ws_url|tojson }}}/ws/dashboard/${encodeURIComponent(repId)}?token=${encodeURIComponent(token)}`;
+  const cards = document.getElementById('cards');
+  const dot = document.getElementById('dot');
+  const statusEl = document.getElementById('status');
+  let audioEnabled = false;
+  let audioCtx;
+
+  document.getElementById('sound').onclick = () => { audioEnabled = true; audioCtx = new AudioContext(); };
+  document.getElementById('clear').onclick = () => { cards.innerHTML = '<div class="empty">Cleared. Waiting for the next objection.</div>'; };
+
+  function beep() {
+    if (!audioEnabled || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = 880; gain.gain.value = 0.08;
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); setTimeout(() => osc.stop(), 180);
+  }
+
+  function renderCard(card) {
+    if (cards.querySelector('.empty')) cards.innerHTML = '';
+    const el = document.createElement('article');
+    el.className = 'card';
+    const proof = (card.proof_points || []).map(p => `<li>${escapeHtml(p)}</li>`).join('');
+    el.innerHTML = `
+      <div class="badge">🔥 ${escapeHtml(card.objection_type)} objection · ${Math.round(card.confidence * 100)}%</div>
+      <div class="headline">${escapeHtml(card.headline)}</div>
+      <div class="rebuttal"><strong>Rebuttal:</strong> ${escapeHtml(card.rebuttal)}</div>
+      <div class="talk"><strong>Talk track:</strong> ${escapeHtml(card.talk_track)}</div>
+      ${proof ? `<ul class="proof">${proof}</ul>` : ''}
+      <div class="meta"><span>${card.latency_ms ?? '?'}ms</span><span>${escapeHtml((card.source_titles || []).join(' · '))}</span></div>`;
+    cards.prepend(el);
+    beep();
+  }
+
+  function escapeHtml(s) { return String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+  function connect() {
+    const ws = new WebSocket(wsUrl);
+    ws.onopen = () => { dot.classList.add('live'); statusEl.textContent = 'live'; };
+    ws.onclose = () => { dot.classList.remove('live'); statusEl.textContent = 'reconnecting'; setTimeout(connect, 1000); };
+    ws.onerror = () => { statusEl.textContent = 'connection error'; };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'cue_card') renderCard(msg.data);
+    };
+  }
+  connect();
+</script>
+</body>
+</html>
